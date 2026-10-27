@@ -3,7 +3,6 @@ import {
   createEmptyGrid,
   FLEET_TEMPLATES,
   GRID_SIZE,
-  INITIAL_LEADERBOARD,
   parseCoordinate,
   toCoordinate,
 } from '@/lib/constants';
@@ -15,55 +14,30 @@ import {
   resolveBarrageRow,
   resolveScan3x3,
 } from '@/lib/gridEngine';
+import {
+  getInMemoryLeaderboardStore,
+  listActiveRooms,
+  loadLeaderboardStore,
+  loadRoom,
+  type PlayerServerBoard,
+  saveLeaderboardStore,
+  saveRoom,
+  type ServerMatchRoom,
+} from '@/lib/roomStore';
 import type {
   AuditComment,
   Coordinate,
   GridCell,
   LeaderboardEntry,
-  MacroInventory,
   MatchRoomState,
   SanitizedRoomPayload,
   ShipInstance,
 } from '@/types/game';
 
-export interface PlayerServerBoard {
-  grid: GridCell[][];
-  fleet: ShipInstance[];
-  macros: MacroInventory;
-  scannedHints: Record<Coordinate, number>;
-}
-
-export interface ServerMatchRoom {
-  state: MatchRoomState;
-  p1Board: PlayerServerBoard;
-  p2Board: PlayerServerBoard;
-}
-
-declare global {
-  var __reconRooms: Map<string, ServerMatchRoom> | undefined;
-  var __reconLeaderboard: Map<string, LeaderboardEntry> | undefined;
-}
-
-function getRoomsStore(): Map<string, ServerMatchRoom> {
-  if (!globalThis.__reconRooms) {
-    globalThis.__reconRooms = new Map<string, ServerMatchRoom>();
-  }
-  return globalThis.__reconRooms;
-}
-
-function getLeaderboardStore(): Map<string, LeaderboardEntry> {
-  if (!globalThis.__reconLeaderboard) {
-    const map = new Map<string, LeaderboardEntry>();
-    for (const entry of INITIAL_LEADERBOARD) {
-      map.set(entry.uid, { ...entry });
-    }
-    globalThis.__reconLeaderboard = map;
-  }
-  return globalThis.__reconLeaderboard;
-}
+export type { PlayerServerBoard, ServerMatchRoom };
 
 function getOrCreatePlayerLeaderboard(uid: string, alias: string): LeaderboardEntry {
-  const store = getLeaderboardStore();
+  const store = getInMemoryLeaderboardStore();
   const existing = store.get(uid);
   if (existing) {
     if (alias && alias.trim().length > 0) {
@@ -86,11 +60,12 @@ function getOrCreatePlayerLeaderboard(uid: string, alias: string): LeaderboardEn
 }
 
 function getSortedLeaderboard(): LeaderboardEntry[] {
-  return Array.from(getLeaderboardStore().values()).sort((a, b) => b.elo - a.elo);
+  return Array.from(getInMemoryLeaderboardStore().values()).sort((a, b) => b.elo - a.elo);
 }
 
-function getOpenRooms(): MatchRoomState[] {
-  return Array.from(getRoomsStore().values())
+async function getOpenRooms(): Promise<MatchRoomState[]> {
+  const rooms = await listActiveRooms();
+  return rooms
     .filter((r) => r.state.status === 'WAITING' && r.state.p2 === null)
     .map((r) => ({
       ...r.state,
@@ -357,7 +332,8 @@ export async function GET(request: Request): Promise<NextResponse> {
   const roomId = searchParams.get('roomId')?.trim().toUpperCase();
   const uid = searchParams.get('uid')?.trim() ?? '';
 
-  const openRooms = getOpenRooms();
+  await loadLeaderboardStore();
+  const openRooms = await getOpenRooms();
   const leaderboard = getSortedLeaderboard();
 
   if (!roomId) {
@@ -367,7 +343,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     });
   }
 
-  const room = getRoomsStore().get(roomId);
+  const room = await loadRoom(roomId);
   if (!room) {
     return NextResponse.json(
       {
@@ -418,16 +394,17 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: 'Identificador de auditor requerido.' }, { status: 400 });
   }
 
-  const rooms = getRoomsStore();
+  await loadLeaderboardStore();
 
   if (action === 'CREATE_ROOM') {
     const newRoom = createServerRoom(uid, alias, roomIdParam);
-    rooms.set(newRoom.state.roomId, newRoom);
+    await saveRoom(newRoom);
+    await saveLeaderboardStore(getInMemoryLeaderboardStore());
     const payload = sanitizeRoomForViewer(newRoom, uid);
     return NextResponse.json({
       room: payload.room,
       payload,
-      openRooms: getOpenRooms(),
+      openRooms: await getOpenRooms(),
       leaderboard: getSortedLeaderboard(),
     });
   }
@@ -436,14 +413,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     let targetRoom: ServerMatchRoom | undefined;
 
     if (action === 'JOIN_ROOM' && roomIdParam) {
-      targetRoom = rooms.get(roomIdParam);
+      targetRoom = await loadRoom(roomIdParam);
       if (!targetRoom) {
         targetRoom = createServerRoom(uid, alias, roomIdParam);
-        rooms.set(targetRoom.state.roomId, targetRoom);
       }
     } else {
-      // QUICK_MATCH: find an open room where user isn't P1, or create one
-      for (const candidate of rooms.values()) {
+      const candidates = await listActiveRooms();
+      for (const candidate of candidates) {
         if (
           candidate.state.status === 'WAITING' &&
           (candidate.state.p1.uid === uid || candidate.state.p2 === null)
@@ -454,7 +430,6 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
       if (!targetRoom) {
         targetRoom = createServerRoom(uid, alias);
-        rooms.set(targetRoom.state.roomId, targetRoom);
       }
     }
 
@@ -475,11 +450,14 @@ export async function POST(request: Request): Promise<NextResponse> {
       targetRoom.state.p2.alias = playerEntry.alias;
     }
 
+    await saveRoom(targetRoom);
+    await saveLeaderboardStore(getInMemoryLeaderboardStore());
+
     const payload = sanitizeRoomForViewer(targetRoom, uid);
     return NextResponse.json({
       room: payload.room,
       payload,
-      openRooms: getOpenRooms(),
+      openRooms: await getOpenRooms(),
       leaderboard: getSortedLeaderboard(),
     });
   }
@@ -488,7 +466,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: 'Código de expediente requerido.' }, { status: 400 });
   }
 
-  const room = rooms.get(roomIdParam);
+  const room = await loadRoom(roomIdParam);
   if (!room) {
     return NextResponse.json({ error: 'Expediente no encontrado.' }, { status: 404 });
   }
@@ -546,11 +524,13 @@ export async function POST(request: Request): Promise<NextResponse> {
       room.state.lastActionLog = `${actorAlias} confirmó asignación de cartera.`;
     }
 
+    await saveRoom(room);
+
     const payload = sanitizeRoomForViewer(room, uid);
     return NextResponse.json({
       room: payload.room,
       payload,
-      openRooms: getOpenRooms(),
+      openRooms: await getOpenRooms(),
       leaderboard: getSortedLeaderboard(),
     });
   }
@@ -585,6 +565,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     if (shotResult.allSunk) {
       const eloDelta = settleMatchVictory(room, actorRole);
+      await saveLeaderboardStore(getInMemoryLeaderboardStore());
       room.state.lastActionLog = `Cierre de ejercicio: ${actorAlias} liquidó todas las partidas (+${eloDelta} ELO).`;
     } else {
       room.state.turn = actorRole === 'P1' ? 'P2' : 'P1';
@@ -597,11 +578,13 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
     }
 
+    await saveRoom(room);
+
     const payload = sanitizeRoomForViewer(room, uid);
     return NextResponse.json({
       room: payload.room,
       payload,
-      openRooms: getOpenRooms(),
+      openRooms: await getOpenRooms(),
       leaderboard: getSortedLeaderboard(),
     });
   }
@@ -628,12 +611,14 @@ export async function POST(request: Request): Promise<NextResponse> {
     room.state.lastActionLog = `[${actorAlias}] Ejecutó =SCAN_3X3(${parsed.coord}): ${count}/9 celdas activas.`;
     room.state.updatedAt = Date.now();
 
+    await saveRoom(room);
+
     const payload = sanitizeRoomForViewer(room, uid);
     return NextResponse.json({
       room: payload.room,
       payload,
       scanCount: count,
-      openRooms: getOpenRooms(),
+      openRooms: await getOpenRooms(),
       leaderboard: getSortedLeaderboard(),
     });
   }
@@ -669,17 +654,20 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     if (barrageRes.allSunk) {
       const eloDelta = settleMatchVictory(room, actorRole);
+      await saveLeaderboardStore(getInMemoryLeaderboardStore());
       room.state.lastActionLog = `Cierre por barrido en fila ${targetRow + 1}: ${actorAlias} completó la conciliación (+${eloDelta} ELO).`;
     } else {
       room.state.turn = actorRole === 'P1' ? 'P2' : 'P1';
       room.state.lastActionLog = `[${actorAlias}] Barrido fiscal en fila ${targetRow + 1} (${toCoordinate(targetRow, 0)}..${toCoordinate(targetRow, 9)}): ${barrageRes.hits} impacto(s).`;
     }
 
+    await saveRoom(room);
+
     const payload = sanitizeRoomForViewer(room, uid);
     return NextResponse.json({
       room: payload.room,
       payload,
-      openRooms: getOpenRooms(),
+      openRooms: await getOpenRooms(),
       leaderboard: getSortedLeaderboard(),
     });
   }
@@ -706,11 +694,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     room.state.comments.push(comment);
     room.state.updatedAt = Date.now();
 
+    await saveRoom(room);
+
     const payload = sanitizeRoomForViewer(room, uid);
     return NextResponse.json({
       room: payload.room,
       payload,
-      openRooms: getOpenRooms(),
+      openRooms: await getOpenRooms(),
       leaderboard: getSortedLeaderboard(),
     });
   }

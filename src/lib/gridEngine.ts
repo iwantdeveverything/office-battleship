@@ -153,6 +153,21 @@ export function autoAllocateFleet(
 }
 
 /**
+ * Deterministic initial allocation so SSR and client hydration match with zero layout shift,
+ * allowing first-time visitors to start auditing in a single click.
+ */
+export function createDefaultAllocatedFleet(
+  locale: Locale = 'es'
+): { grid: GridCell[][]; fleet: ShipInstance[] } {
+  let seed = 4092026;
+  const deterministicRng = (): number => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+  return autoAllocateFleet(locale, deterministicRng);
+}
+
+/**
  * Resolves a single cell audit (`=AUDIT(coord)`) against the target grid and fleet.
  */
 export function resolveAuditShot(

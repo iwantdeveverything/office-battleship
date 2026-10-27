@@ -9,11 +9,13 @@ import { createEmptyGrid, FLEET_TEMPLATES } from '@/lib/constants';
 import {
   autoAllocateFleet,
   canPlaceShip,
+  createDefaultAllocatedFleet,
   placeShipOnGrid,
   resolveAuditShot,
   resolveBarrageRow,
   resolveScan3x3,
 } from '@/lib/gridEngine';
+import { evictExpiredRooms, type ServerMatchRoom } from '@/lib/roomStore';
 import type { SanitizedRoomPayload } from '@/types/game';
 
 describe('RECON-Q4 Grid Engine, Hunt & Target AI, and Server Fog-of-War Anti-Cheat', () => {
@@ -364,5 +366,28 @@ describe('RECON-Q4 Grid Engine, Hunt & Target AI, and Server Fog-of-War Anti-Che
       })
     );
     expect(resubmitRes.status).toBe(400);
+  });
+
+  it('produces identical deterministic initial allocation and evicts expired rooms by TTL', () => {
+    const first = createDefaultAllocatedFleet('es');
+    const second = createDefaultAllocatedFleet('es');
+    expect(first.fleet.map((s) => s.cells)).toEqual(second.fleet.map((s) => s.cells));
+
+    const mockStore = new Map<string, ServerMatchRoom>();
+    const now = 1_000_000_000;
+    const staleRoom = {
+      state: { roomId: 'STALE-1', updatedAt: now - 3 * 60 * 60 * 1000 },
+    } as ServerMatchRoom;
+    const freshRoom = {
+      state: { roomId: 'FRESH-1', updatedAt: now - 10 * 60 * 1000 },
+    } as ServerMatchRoom;
+
+    mockStore.set('STALE-1', staleRoom);
+    mockStore.set('FRESH-1', freshRoom);
+
+    const evicted = evictExpiredRooms(mockStore, now, 2 * 60 * 60 * 1000, 500);
+    expect(evicted).toBe(1);
+    expect(mockStore.has('STALE-1')).toBe(false);
+    expect(mockStore.has('FRESH-1')).toBe(true);
   });
 });

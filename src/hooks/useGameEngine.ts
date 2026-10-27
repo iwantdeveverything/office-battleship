@@ -15,6 +15,7 @@ import {
   canPlaceShip,
   cloneFleet,
   cloneGrid,
+  createDefaultAllocatedFleet,
   placeShipOnGrid,
   resolveAuditShot,
   resolveBarrageRow,
@@ -49,9 +50,10 @@ export function useGameEngine({ locale, alias }: UseGameEngineOptions) {
   const [selectedCoord, setSelectedCoord] = useState<Coordinate>('A1');
   const [hoverCell, setHoverCell] = useState<{ row: number; col: number } | null>(null);
 
-  // Player & Opponent Boards (Single-Player local state, overridden by sanitized server state in MULTI)
-  const [ownGrid, setOwnGrid] = useState<GridCell[][]>(() => createEmptyGrid());
-  const [ownFleet, setOwnFleet] = useState<ShipInstance[]>([]);
+  // Player & Opponent Boards (Pre-allocated deterministically for instant 1-click onboarding)
+  const initialBoard = useMemo(() => createDefaultAllocatedFleet(locale), []);
+  const [ownGrid, setOwnGrid] = useState<GridCell[][]>(() => initialBoard.grid);
+  const [ownFleet, setOwnFleet] = useState<ShipInstance[]>(() => initialBoard.fleet);
   const [aiGrid, setAiGrid] = useState<GridCell[][]>(() => createEmptyGrid());
   const [aiFleet, setAiFleet] = useState<ShipInstance[]>([]);
 
