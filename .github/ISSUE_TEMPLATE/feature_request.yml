@@ -1,0 +1,23 @@
+name: Enhancement / Feature Proposal
+description: Propose a new spreadsheet feature, formula capability, or architectural improvement that preserves the Zero-Game disguise.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Problem & Proposed Outcome
+      description: What problem does this solve, and how does it fit the corporate spreadsheet disguise?
+    validations:
+      required: true
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: Architectural Invariants (AGENTS.md)
+      options:
+        - label: Uses strictly corporate accounting terminology (no gaming nouns or sprites)
+          required: true
+        - label: Preserves bilingual (`es` / `en`) parity
+          required: true
+        - label: Preserves `<16ms` `CLS = 0` Panic Mode and server-side Fog-of-War
+          required: true

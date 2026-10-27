@@ -1,12 +1,19 @@
 {
   "name": "office-battleship",
-  "version": "0.1.0",
-  "private": true,
+  "version": "1.0.0",
+  "description": "RECON-Q4 — Bilingual (es/en) real-time tactical Battleship disguised 100% as an enterprise cloud spreadsheet with server-side Fog-of-War anti-cheat and <16ms zero-CLS Panic Mode.",
+  "license": "GPL-2.0-only",
+  "private": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iwantdeveverything/office-battleship.git"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {

@@ -1,0 +1,37 @@
+name: Discrepancy / Bug Report
+description: Report a bug in spreadsheet disguise, formula parsing, Panic Mode, or multiplayer synchronization.
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue in **RECON-Q4**. Please provide deterministic reproduction steps below.
+  - type: dropdown
+    id: domain
+    attributes:
+      label: Affected Area
+      options:
+        - Corporate Spreadsheet UI / Chameleon Themes
+        - Panic Mode (<16ms Esc / CLS = 0)
+        - Bilingual Formula Parser (=AUDIT / =AUDITAR)
+        - Server-Side Fog-of-War (/api/audit)
+        - Single-Player Hunt & Target AI
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction Steps
+      placeholder: |
+        1. Open `/spreadsheets/d/Q4-8492-RECON/edit`
+        2. Enter `=AUDITAR(E5)` in the `fx` bar
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs. Actual Behavior
+    validations:
+      required: true
